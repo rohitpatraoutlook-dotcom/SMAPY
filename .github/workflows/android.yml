@@ -40,7 +40,7 @@ jobs:
           cp -r lib build_project/lib
           rm -rf build_project/test
 
-      - name: Configure native Android runtime bridge
+      - name: Configure Android runtime service
         working-directory: build_project
         run: |
           cat > android/app/src/main/kotlin/com/smapy/smapy/MainActivity.kt <<'KOTLIN'
@@ -50,9 +50,42 @@ jobs:
           import io.flutter.embedding.android.FlutterActivity
           import io.flutter.embedding.engine.FlutterEngine
           import io.flutter.plugin.common.MethodChannel
+          import java.io.File
 
           class MainActivity : FlutterActivity() {
               private val channelName = "com.smapy/runtime"
+
+              private fun runtimeDirectories(): Map<String, File> {
+                  val base = File(filesDir, "smapy-runtime")
+                  return mapOf(
+                      "base" to base,
+                      "rootfs" to File(base, "rootfs"),
+                      "bin" to File(base, "bin"),
+                      "downloads" to File(base, "downloads"),
+                      "tmp" to File(base, "tmp"),
+                      "home" to File(base, "home")
+                  )
+              }
+
+              private fun prepareRuntimeStorage(): Map<String, Any> {
+                  val directories = runtimeDirectories()
+
+                  directories.values.forEach { directory ->
+                      if (!directory.exists() && !directory.mkdirs()) {
+                          throw IllegalStateException(
+                              "Could not create runtime directory: ${directory.name}"
+                          )
+                      }
+                  }
+
+                  return mapOf(
+                      "prepared" to true,
+                      "storage" to "app-private",
+                      "directories" to directories.mapValues {
+                          it.value.absolutePath
+                      }
+                  )
+              }
 
               override fun configureFlutterEngine(
                   flutterEngine: FlutterEngine
@@ -63,18 +96,42 @@ jobs:
                       flutterEngine.dartExecutor.binaryMessenger,
                       channelName
                   ).setMethodCallHandler { call, result ->
-                      when (call.method) {
-                          "getDeviceInfo" -> {
-                              result.success(
-                                  mapOf(
-                                      "platform" to "Android",
-                                      "androidVersion" to Build.VERSION.RELEASE,
-                                      "sdkInt" to Build.VERSION.SDK_INT,
-                                      "supportedAbis" to Build.SUPPORTED_ABIS.toList()
+                      try {
+                          when (call.method) {
+                              "getDeviceInfo" -> {
+                                  result.success(
+                                      mapOf(
+                                          "platform" to "Android",
+                                          "androidVersion" to Build.VERSION.RELEASE,
+                                          "sdkInt" to Build.VERSION.SDK_INT,
+                                          "supportedAbis" to Build.SUPPORTED_ABIS.toList(),
+                                          "primaryAbi" to Build.SUPPORTED_ABIS.firstOrNull()
+                                              .orEmpty()
+                                      )
                                   )
-                              )
+                              }
+
+                              "prepareRuntimeStorage" -> {
+                                  result.success(prepareRuntimeStorage())
+                              }
+
+                              "getRuntimePaths" -> {
+                                  val directories = runtimeDirectories()
+                                  result.success(
+                                      directories.mapValues {
+                                          it.value.absolutePath
+                                      }
+                                  )
+                              }
+
+                              else -> result.notImplemented()
                           }
-                          else -> result.notImplemented()
+                      } catch (error: Exception) {
+                          result.error(
+                              "RUNTIME_ERROR",
+                              error.message ?: "Runtime operation failed",
+                              null
+                          )
                       }
                   }
               }
