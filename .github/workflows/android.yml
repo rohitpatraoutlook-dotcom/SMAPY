@@ -40,6 +40,47 @@ jobs:
           cp -r lib build_project/lib
           rm -rf build_project/test
 
+      - name: Configure native Android runtime bridge
+        working-directory: build_project
+        run: |
+          cat > android/app/src/main/kotlin/com/smapy/smapy/MainActivity.kt <<'KOTLIN'
+          package com.smapy.smapy
+
+          import android.os.Build
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.MethodChannel
+
+          class MainActivity : FlutterActivity() {
+              private val channelName = "com.smapy/runtime"
+
+              override fun configureFlutterEngine(
+                  flutterEngine: FlutterEngine
+              ) {
+                  super.configureFlutterEngine(flutterEngine)
+
+                  MethodChannel(
+                      flutterEngine.dartExecutor.binaryMessenger,
+                      channelName
+                  ).setMethodCallHandler { call, result ->
+                      when (call.method) {
+                          "getDeviceInfo" -> {
+                              result.success(
+                                  mapOf(
+                                      "platform" to "Android",
+                                      "androidVersion" to Build.VERSION.RELEASE,
+                                      "sdkInt" to Build.VERSION.SDK_INT,
+                                      "supportedAbis" to Build.SUPPORTED_ABIS.toList()
+                                  )
+                              )
+                          }
+                          else -> result.notImplemented()
+                      }
+                  }
+              }
+          }
+          KOTLIN
+
       - name: Resolve dependencies
         working-directory: build_project
         run: flutter pub get
