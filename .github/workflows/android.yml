@@ -1,0 +1,60 @@
+name: SMAPY Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Generate Android project
+        run: |
+          flutter create \
+            --platforms=android \
+            --project-name=smapy \
+            --org=com.smapy \
+            build_project
+
+          cp pubspec.yaml build_project/pubspec.yaml
+          rm -rf build_project/lib
+          cp -r lib build_project/lib
+
+      - name: Resolve dependencies
+        working-directory: build_project
+        run: flutter pub get
+
+      - name: Analyze Dart source
+        working-directory: build_project
+        run: flutter analyze
+
+      - name: Build release APK
+        working-directory: build_project
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: smapy-android-apk
+          path: build_project/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14

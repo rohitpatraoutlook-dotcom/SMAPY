@@ -1,0 +1,12 @@
+.dart_tool/
+.packages
+.pub-cache/
+build/
+build_project/
+.idea/
+.vscode/
+*.iml
+.DS_Store
+.env
+*.jks
+*.keystore
