@@ -1,0 +1,160 @@
+import 'dart:io';
+
+import 'package:archive/archive.dart';
+
+class ExtractionResult {
+  const ExtractionResult({
+    required this.rootfsPath,
+    required this.extractedFiles,
+    required this.extractedDirectories,
+    required this.totalBytes,
+  });
+
+  final String rootfsPath;
+  final int extractedFiles;
+  final int extractedDirectories;
+  final int totalBytes;
+}
+
+class RootfsExtractor {
+  RootfsExtractor._();
+
+  static final RootfsExtractor instance = RootfsExtractor._();
+
+  Future<ExtractionResult> extractTarGz({
+    required String archivePath,
+    required String destinationPath,
+    void Function(int completed, int total)? onProgress,
+    int maxEntries = 200000,
+    int maxExpandedBytes = 4 * 1024 * 1024 * 1024,
+  }) async {
+    final archiveFile = File(archivePath);
+
+    if (!await archiveFile.exists()) {
+      throw const FileSystemException(
+        'Root filesystem archive does not exist.',
+      );
+    }
+
+    final destination = Directory(destinationPath);
+
+    if (await destination.exists()) {
+      throw FileSystemException(
+        'Destination must not already exist.',
+        destinationPath,
+      );
+    }
+
+    final parent = destination.parent;
+    await parent.create(recursive: true);
+
+    final staging = Directory(
+      '${parent.path}/.${destination.uri.pathSegments.last}.staging',
+    );
+
+    if (await staging.exists()) {
+      await staging.delete(recursive: true);
+    }
+
+    await staging.create(recursive: true);
+
+    var files = 0;
+    var directories = 0;
+    var expandedBytes = 0;
+
+    try {
+      final compressedBytes = await archiveFile.readAsBytes();
+      final tarBytes = GZipDecoder().decodeBytes(compressedBytes);
+      final entries = TarDecoder().decodeBytes(tarBytes);
+
+      if (entries.length > maxEntries) {
+        throw const FormatException(
+          'Archive contains too many entries.',
+        );
+      }
+
+      final stagingPath = staging.absolute.path;
+
+      for (var index = 0; index < entries.length; index++) {
+        final entry = entries[index];
+        final name = entry.name;
+
+        if (name.isEmpty ||
+            name.startsWith('/') ||
+            name.contains('\\') ||
+            name.split('/').any(
+              (part) => part == '..' || part == '.',
+            )) {
+          throw FormatException(
+            'Unsafe archive path rejected: $name',
+          );
+        }
+
+        // Refuse links and special filesystem objects. A future version
+        // can support them after validating their targets and semantics.
+        if (entry.isSymbolicLink ||
+            entry.isLink ||
+            entry.isFile == false && entry.isDirectory == false) {
+          throw FormatException(
+            'Unsupported archive entry type: $name',
+          );
+        }
+
+        final output = File(
+          '$stagingPath${Platform.pathSeparator}$name',
+        );
+
+        final resolved = output.absolute.path;
+        if (!resolved.startsWith(
+          '$stagingPath${Platform.pathSeparator}',
+        )) {
+          throw FormatException(
+            'Archive entry escapes the staging directory: $name',
+          );
+        }
+
+        if (entry.isDirectory) {
+          await Directory(output.path).create(recursive: true);
+          directories++;
+        } else {
+          final content = entry.content;
+
+          if (content is! List<int>) {
+            throw FormatException(
+              'Invalid file content for archive entry: $name',
+            );
+          }
+
+          expandedBytes += content.length;
+
+          if (expandedBytes > maxExpandedBytes) {
+            throw const FormatException(
+              'Expanded archive exceeds the configured size limit.',
+            );
+          }
+
+          await output.parent.create(recursive: true);
+          await output.writeAsBytes(content, flush: false);
+          files++;
+        }
+
+        onProgress?.call(index + 1, entries.length);
+      }
+
+      // Publish only after the full extraction succeeds.
+      await staging.rename(destination.path);
+
+      return ExtractionResult(
+        rootfsPath: destination.path,
+        extractedFiles: files,
+        extractedDirectories: directories,
+        totalBytes: expandedBytes,
+      );
+    } catch (_) {
+      if (await staging.exists()) {
+        await staging.delete(recursive: true);
+      }
+      rethrow;
+    }
+  }
+}
