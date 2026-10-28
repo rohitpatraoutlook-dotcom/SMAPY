@@ -38,6 +38,7 @@ jobs:
           cp pubspec.yaml build_project/pubspec.yaml
           rm -rf build_project/lib
           cp -r lib build_project/lib
+          rm -rf build_project/test
 
       - name: Resolve dependencies
         working-directory: build_project

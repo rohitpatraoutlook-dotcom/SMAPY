@@ -42,12 +42,6 @@ class SmapyHome extends StatefulWidget {
 class _SmapyHomeState extends State<SmapyHome> {
   int selectedIndex = 0;
 
-  static const pages = [
-    'Workspace',
-    'Notebooks',
-    'Packages',
-    'Terminal',
-  ];
 
   @override
   Widget build(BuildContext context) {
