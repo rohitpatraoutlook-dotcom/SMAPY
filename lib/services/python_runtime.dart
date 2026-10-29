@@ -72,7 +72,7 @@ class PythonRuntime {
 
     await scriptFile.writeAsString(source, flush: true);
 
-    final marker = '__SMAPY_DONE_$executionId__';
+    final marker = '__SMAPY_DONE_${executionId}__';
     final completer = Completer<PythonExecutionResult>();
     final stdout = StringBuffer();
     final stderr = StringBuffer();
