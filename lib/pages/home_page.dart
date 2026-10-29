@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';\nimport '../services/runtime_manager.dart';
+import 'package:flutter/material.dart';
+import '../services/runtime_manager.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
