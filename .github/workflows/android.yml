@@ -35,6 +35,47 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Build Android ARM64 PRoot
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential git python3 binutils
+
+          git clone https://github.com/berilevi/proot-static.git proot-source
+          git -C proot-source checkout 6f8ebfd8e24887dfba64c3f2d7d5fe9dc059b60e
+
+          echo "Checking pinned PRoot source..."
+          git -C proot-source rev-parse HEAD
+
+          echo "Installing Android NDK..."
+          sdkmanager --install "ndk;28.2.13676358"
+          export NDK="$ANDROID_HOME/ndk/28.2.13676358"
+
+          cd proot-source
+          tools/build-static-aarch64.sh
+
+          test -s dist/aarch64/proot
+          test -s dist/aarch64/loader
+
+          mkdir -p ../proot-artifacts/aarch64
+          cp dist/aarch64/proot dist/aarch64/loader ../proot-artifacts/aarch64/
+
+          if [ -s dist/aarch64/loader32 ]; then
+            cp dist/aarch64/loader32 ../proot-artifacts/aarch64/
+          fi
+
+          file ../proot-artifacts/aarch64/*
+          readelf -h ../proot-artifacts/aarch64/proot
+
+      - name: Upload PRoot build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: smapy-proot-android-arm64
+          path: proot-artifacts/aarch64/*
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Generate Android project
         run: |
           flutter create \
@@ -47,12 +88,21 @@ jobs:
           rm -rf build_project/lib
           cp -R lib build_project/lib
           rm -rf build_project/test
+          if [ -d test ]; then cp -R test build_project/test; fi
 
           mkdir -p \
             build_project/android/app/src/main/kotlin/com/smapy/smapy
 
           cp android_src/MainActivity.kt \
             build_project/android/app/src/main/kotlin/com/smapy/smapy/MainActivity.kt
+
+          ASSETS=build_project/android/app/src/main/assets/smapy/proot
+          mkdir -p "$ASSETS/libexec/proot"
+          cp proot-artifacts/aarch64/proot "$ASSETS/proot"
+          cp proot-artifacts/aarch64/loader "$ASSETS/libexec/proot/loader"
+          if [ -s proot-artifacts/aarch64/loader32 ]; then
+            cp proot-artifacts/aarch64/loader32 "$ASSETS/libexec/proot/loader32"
+          fi
 
       - name: Resolve dependencies
         working-directory: build_project
@@ -65,6 +115,10 @@ jobs:
       - name: Analyze Dart source
         working-directory: build_project
         run: flutter analyze
+
+      - name: Run Flutter tests
+        working-directory: build_project
+        run: flutter test
 
       - name: Build release APK
         working-directory: build_project

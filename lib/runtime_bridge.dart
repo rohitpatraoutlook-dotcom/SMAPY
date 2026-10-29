@@ -29,6 +29,21 @@ class RuntimeBridge {
     return _invokeMap('prepareRuntimeStorage');
   }
 
+  static Future<String> getRuntimeBasePath() async {
+    final paths = await getRuntimePaths();
+    final base = paths['base'];
+
+    if (base is! String || base.isEmpty) {
+      throw StateError('Android runtime base path is unavailable.');
+    }
+
+    return base;
+  }
+
+  static Future<Map<String, dynamic>> installProot() {
+    return _invokeMap('installProot');
+  }
+
   static Future<Map<String, dynamic>> getRuntimePaths() {
     return _invokeMap('getRuntimePaths');
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'installation_store.dart';
@@ -28,7 +29,20 @@ class LinuxSessionSnapshot {
 }
 
 class LinuxLauncher {
-  LinuxLauncher._();
+  LinuxLauncher._() {
+    RuntimeProcess.instance.output.listen((event) {
+      if (event.type != 'exit' || event.processId == null) return;
+
+      final current = _snapshot;
+      if (current.processId != event.processId) return;
+
+      _snapshot = LinuxSessionSnapshot(
+        status: LinuxSessionStatus.stopped,
+        rootfsPath: current.rootfsPath,
+        message: 'Linux process exited (code ${event.exitCode ?? 'unknown'}).',
+      );
+    });
+  }
 
   static final LinuxLauncher instance = LinuxLauncher._();
 
@@ -108,34 +122,96 @@ class LinuxLauncher {
         message: 'Starting Linux process...',
       );
 
-      final processId = await RuntimeProcess.instance.start(
-        executablePath: proot.path,
-        workingDirectory: rootfs.path,
-        arguments: [
-          '-0',
-          '-r',
-          rootfs.path,
-          '-w',
-          '/root',
-          '-b',
-          '/dev',
-          '-b',
-          '/proc',
-          '-b',
-          '/sys',
-          shell.path.replaceFirst(rootfs.path, ''),
-          '-l',
-        ],
-      );
+      final readyMarker =
+          '__SMAPY_SHELL_READY_${DateTime.now().microsecondsSinceEpoch}__';
+      final ready = Completer<void>();
+      var processIdForCheck = -1;
+      var shellOutput = '';
+      late final StreamSubscription<RuntimeOutput> readinessSubscription;
 
-      _snapshot = LinuxSessionSnapshot(
-        status: LinuxSessionStatus.running,
-        processId: processId,
-        rootfsPath: rootfs.path,
-        message: 'Linux process started; shell readiness is not yet confirmed.',
-      );
+      readinessSubscription = RuntimeProcess.instance.output.listen((event) {
+        if (processIdForCheck < 0 || event.processId != processIdForCheck) {
+          return;
+        }
 
-      return _snapshot;
+        if (event.type == 'exit') {
+          if (!ready.isCompleted) {
+            ready.completeError(
+              StateError(
+                'Linux shell exited before readiness '
+                '(code ${event.exitCode ?? 'unknown'}).',
+              ),
+            );
+          }
+          return;
+        }
+
+        if (event.type == 'stderr') {
+          shellOutput += '${event.text}\n';
+          return;
+        }
+
+        if (event.text.contains(readyMarker) && !ready.isCompleted) {
+          ready.complete();
+        }
+      });
+
+      try {
+        final processId = await RuntimeProcess.instance.start(
+          executablePath: proot.path,
+          workingDirectory: rootfs.path,
+          arguments: [
+            '-0',
+            '-r',
+            rootfs.path,
+            '-w',
+            '/root',
+            '-b',
+            '/dev',
+            '-b',
+            '/proc',
+            '-b',
+            '/sys',
+            shell.path.replaceFirst(rootfs.path, ''),
+            '-l',
+          ],
+        );
+
+        processIdForCheck = processId;
+        _snapshot = LinuxSessionSnapshot(
+          status: LinuxSessionStatus.starting,
+          processId: processId,
+          rootfsPath: rootfs.path,
+          message: 'Waiting for Linux shell...',
+        );
+
+        await RuntimeProcess.instance.writeInput(
+          processId,
+          'printf "$readyMarker\\n"\\n',
+        );
+
+        try {
+          await ready.future.timeout(const Duration(seconds: 12));
+        } on TimeoutException {
+          await RuntimeProcess.instance.stop(processId);
+          final detail = shellOutput.trim();
+          throw StateError(
+            'Linux shell readiness timed out after 12 seconds.'
+            '${detail.isEmpty ? '' : ' stderr: ${detail.length > 500 ? detail.substring(detail.length - 500) : detail}'}',
+          );
+        }
+
+        _snapshot = LinuxSessionSnapshot(
+          status: LinuxSessionStatus.running,
+          processId: processId,
+          rootfsPath: rootfs.path,
+          message: 'Linux shell is ready.',
+        );
+
+        return _snapshot;
+      } finally {
+        await readinessSubscription.cancel();
+      }
     } catch (error) {
       _snapshot = LinuxSessionSnapshot(
         status: LinuxSessionStatus.failed,

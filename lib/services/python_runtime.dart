@@ -80,9 +80,7 @@ class PythonRuntime {
     late final StreamSubscription<RuntimeOutput> subscription;
 
     subscription = RuntimeProcess.instance.output.listen((event) {
-      if (event.processId != null && event.processId != processId) {
-        return;
-      }
+      if (event.processId != processId) return;
 
       if (event.type == 'stderr') {
         stderr.writeln(event.text);

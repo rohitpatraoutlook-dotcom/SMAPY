@@ -57,6 +57,62 @@ class MainActivity : FlutterActivity() {
         )
     }
 
+    private fun installProotAssets(): Map<String, Any> {
+        val directories = runtimeDirectories()
+        val bin = directories.getValue("bin")
+        val loaderDirectory = File(bin, "libexec/proot")
+
+        listOf(bin, loaderDirectory).forEach { directory ->
+            if (!directory.exists() && !directory.mkdirs()) {
+                throw IllegalStateException(
+                    "Could not create directory: ${directory.absolutePath}"
+                )
+            }
+        }
+
+        val assetsToTargets = listOf(
+            "smapy/proot/proot" to File(bin, "proot"),
+            "smapy/proot/libexec/proot/loader" to
+                File(loaderDirectory, "loader"),
+            "smapy/proot/libexec/proot/loader32" to
+                File(loaderDirectory, "loader32")
+        )
+
+        val installed = mutableListOf<String>()
+        for ((assetPath, target) in assetsToTargets) {
+            try {
+                assets.open(assetPath).use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                    if (!target.setExecutable(true, false) && !target.canExecute()) {
+                        throw IllegalStateException(
+                            "Could not mark ${target.name} executable."
+                        )
+                    }
+                    installed.add(target.absolutePath)
+                }
+            } catch (error: java.io.FileNotFoundException) {
+                if (target.name == "proot" || target.name == "loader") throw error
+            }
+        }
+
+        val proot = File(bin, "proot")
+        val loader = File(loaderDirectory, "loader")
+        if (!proot.isFile || !proot.canExecute() ||
+            !loader.isFile || !loader.canExecute()
+        ) {
+            throw IllegalStateException(
+                "PRoot or its required loader is missing after installation."
+            )
+        }
+
+        return mapOf(
+            "installed" to true,
+            "directory" to bin.absolutePath,
+            "loader" to loader.absolutePath,
+            "files" to installed
+        )
+    }
+
     private fun emit(event: Map<String, Any?>) {
         mainHandler.post { eventSink?.success(event) }
     }
@@ -116,9 +172,14 @@ class MainActivity : FlutterActivity() {
             "Invalid process arguments."
         }
 
-        val process = ProcessBuilder(
+        val builder = ProcessBuilder(
             listOf(executable.absolutePath) + arguments
-        ).directory(cwd).redirectErrorStream(false).start()
+        ).directory(cwd).redirectErrorStream(false)
+        builder.environment()["PROOT_TMP_DIR"] =
+            File(base, "tmp").absolutePath
+        builder.environment()["PROOT_LOADER"] =
+            File(base, "bin/libexec/proot/loader").absolutePath
+        val process = builder.start()
 
         val id = nextId.getAndIncrement()
         synchronized(processes) { processes[id] = process }
@@ -193,6 +254,8 @@ class MainActivity : FlutterActivity() {
                     )
                     "prepareRuntimeStorage" ->
                         result.success(prepareRuntimeStorage())
+                    "installProot" ->
+                        result.success(installProotAssets())
                     "getRuntimePaths" ->
                         result.success(
                             runtimeDirectories().mapValues { it.value.absolutePath }

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';\nimport '../services/runtime_manager.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -35,7 +35,34 @@ class HomePage extends StatelessWidget {
               SizedBox(height: 20),
               Text('Python runtime setup pending',
                   style: TextStyle(color: Colors.white54)),
+              SizedBox(height: 12),
+              Text(
+                'Runtime status',
+                style: TextStyle(color: Colors.white70),
+              ),
+              SizedBox(height: 6),
+              Text(
+                runtimeMessage,
+                style: TextStyle(color: Colors.white54),
+              ),
             ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: preparingRuntime ? null : prepareRuntime,
+            icon: preparingRuntime
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download),
+            label: Text(
+              preparingRuntime ? 'Preparing runtime...' : 'Install Linux Runtime',
+            ),
           ),
         ),
         const SizedBox(height: 25),

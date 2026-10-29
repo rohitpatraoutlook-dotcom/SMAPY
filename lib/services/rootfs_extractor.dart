@@ -120,7 +120,14 @@ class RootfsExtractor {
         final entry = entries[i];
         final originalName = entry.name;
         final isDirectory = originalName.endsWith('/');
-        final name = originalName.replaceFirst(RegExp(r'/+$'), '');
+        var name = originalName.replaceFirst(RegExp(r'/+$'), '');
+        while (name == '.' || name.startsWith('./')) {
+          if (name == '.') {
+            name = '';
+            break;
+          }
+          name = name.substring(2);
+        }
 
         if (name.isEmpty) {
           onProgress?.call(i + 1, entries.length);
@@ -164,8 +171,11 @@ class RootfsExtractor {
 
       // Create links last, so they cannot redirect extraction writes.
       for (final entry in pendingLinks) {
-        final name = entry.name.replaceFirst(RegExp(r'/+$'), '');
-        if (!_safeName(name)) {
+        var name = entry.name.replaceFirst(RegExp(r'/+$'), '');
+        while (name.startsWith('./')) {
+          name = name.substring(2);
+        }
+        if (name.isEmpty || !_safeName(name)) {
           throw FormatException('Unsafe symbolic link path: $name');
         }
 

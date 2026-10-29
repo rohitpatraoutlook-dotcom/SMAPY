@@ -95,7 +95,7 @@ class LinuxInstaller {
 
   static final LinuxInstaller instance = LinuxInstaller._();
 
-  final http.Client _client = http.Client();
+  http.Client _client = http.Client();
 
   InstallerSnapshot _snapshot = const InstallerSnapshot(
     status: InstallerStatus.idle,
@@ -121,6 +121,7 @@ class LinuxInstaller {
 
     _cancelRequested = true;
     _client.close();
+    _client = http.Client();
 
     _snapshot = const InstallerSnapshot(
       status: InstallerStatus.cancelled,
