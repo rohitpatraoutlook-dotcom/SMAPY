@@ -169,7 +169,7 @@ class RootfsExtractor {
           throw FormatException('Unsafe symbolic link path: $name');
         }
 
-        final rawTarget = entry.symbolicLink ?? '';
+        final rawTarget = entry.nameOfLinkedFile ?? '';
         final safeTarget = _linkTarget(name, rawTarget);
         final outputPath = '$base${Platform.pathSeparator}$name';
 
